@@ -1,0 +1,18 @@
+{
+  "sample": "form_hi",
+  "doc_type": "form",
+  "fields": {
+    "title": "आवेदन पत्र",
+    "org_name": "जिला कार्यालय, पुणे",
+    "application_no": "MH/PUN/2026/004512",
+    "date": "2026-03-03",
+    "dob": "2026-02-14",
+    "name": "सुनीता देशपांडे",
+    "father_name": "रमेश देशपांडे",
+    "address": "कमरा नं. 12, शिवनगर, कोथरुड, पुणे, महाराष्ट्र 411038",
+    "phone": "9822014567",
+    "email": "sunita.deshpande@example.in",
+    "amount": 2500.0
+  },
+  "line_items": []
+}

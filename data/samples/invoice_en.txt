@@ -1,0 +1,31 @@
+# Sample invoice — synthetic test data, not a real tax document.
+# Authored for sarvam-vision-doc-extract: English labels, Indian digit grouping,
+# GST-style tax lines and amounts in ₹.
+
+VEDA ANALYTICS PRIVATE LIMITED
+Registered Office: 42, 5th Cross, Indiranagar, Bengaluru 560038, Karnataka
+GSTIN: 29AABCV1234K1Z5
+Vendor Phone: +91 98450 12345
+Vendor Email: billing@vedaanalytics.in
+
+INVOICE
+
+Invoice No: VA-2026-0417
+Invoice Date: 12/02/2026
+Due Date: 26-02-2026
+Customer Name: Meera Krishnan
+Customer Address: F-7, Sector 22, Noida, Uttar Pradesh 201301
+Customer Phone: 9876543210
+Customer Email: meera.k@example.com
+
+Line Items
+S.No | Description | Qty | Rate (₹) | Amount (₹)
+1 | Document digitisation services | 40 | 1,250.00 | 50,000.00
+2 | OCR model tuning and evaluation | 12 | 2,500.00 | 30,000.00
+3 | Handwritten field review | 8 | 950.00 | 7,600.00
+
+Subtotal: ₹87,600.00
+CGST @ 9%: ₹7,884.00
+SGST @ 9%: ₹7,884.00
+Grand Total: ₹1,03,368.00
+Amount in words: One lakh three thousand three hundred sixty-eight rupees only

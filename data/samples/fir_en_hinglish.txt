@@ -1,0 +1,26 @@
+# Sample FIR — synthetic test data, not a real police record.
+# Authored for sarvam-vision-doc-extract. Mixed English + Hindi (Hinglish) body,
+# the same shape as the FIR digitisation work from the hackathon prototype.
+
+FIR
+
+FIR No: 142/2026
+Date: 07/01/2026
+Police Station: Cyber Crime Police Station, Kolkata
+District: Kolkata, West Bengal
+
+Complainant Name: Arjun Mehta
+Complainant Phone: 9830011224
+Complainant Email: arjun.mehta@example.com
+Address: 18B Rashbehari Avenue, Kolkata 700029
+
+Accused Name: Rakesh Yadav @ Rocky
+Occurrence Date: 05/01/2026
+Amount: ₹45,000.00
+
+Details:
+ complainant ke mobile par ek SMS aaya jismein OTP maanga gaya.
+ OTP share karne ke baad account se ₹45,000 kaat liya gaya.
+ is complaint mein main cyber crime cell mein shikayat kar raha hoon.
+
+Signature: Arjun Mehta

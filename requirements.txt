@@ -1,0 +1,18 @@
+# sarvam-vision-doc-extract has ZERO required third-party dependencies.
+# The default path (rule-based provider + validation + evaluation) runs on the
+# Python 3 standard library alone. `python3 --version` >= 3.10 is enough.
+#
+# Everything below is OPTIONAL. Uncomment only what you actually need.
+#
+# --- OCR provider (`--provider ocr`, image inputs) -------------------------
+# pytesseract>=0.3.10          # also needs the Tesseract binary:
+#                              #   sudo apt install tesseract-ocr tesseract-ocr-hin
+# Pillow>=10.3.0               # image loading for pytesseract
+# easyocr>=1.7.0               # alternative engine (pulls torch; heavy)
+#
+# --- LLM provider (`--provider llm`, network + key) ------------------------
+# requests>=2.31.0
+#
+# --- Development / verification -------------------------------------------
+# No test dependency: the suite is stdlib `unittest` and runs with
+#   PYTHONPATH=src python3 -m unittest discover -s tests -v

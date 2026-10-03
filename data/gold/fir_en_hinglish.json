@@ -1,0 +1,19 @@
+{
+  "sample": "fir_en_hinglish",
+  "doc_type": "fir",
+  "fields": {
+    "title": "FIR",
+    "fir_no": "142/2026",
+    "date": "2026-01-07",
+    "police_station": "Cyber Crime Police Station, Kolkata",
+    "district": "Kolkata, West Bengal",
+    "complainant_name": "Arjun Mehta",
+    "complainant_phone": "9830011224",
+    "complainant_email": "arjun.mehta@example.com",
+    "address": "18B Rashbehari Avenue, Kolkata 700029",
+    "accused_name": "Rakesh Yadav @ Rocky",
+    "occurrence_date": "2026-01-05",
+    "amount": 45000.0
+  },
+  "line_items": []
+}

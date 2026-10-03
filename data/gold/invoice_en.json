@@ -1,0 +1,43 @@
+{
+  "sample": "invoice_en",
+  "doc_type": "invoice",
+  "fields": {
+    "title": "INVOICE",
+    "org_name": "VEDA ANALYTICS PRIVATE LIMITED",
+    "vendor_address": "42, 5th Cross, Indiranagar, Bengaluru 560038, Karnataka",
+    "gstin": "29AABCV1234K1Z5",
+    "vendor_phone": "9845012345",
+    "vendor_email": "billing@vedaanalytics.in",
+    "invoice_no": "VA-2026-0417",
+    "invoice_date": "2026-02-12",
+    "due_date": "2026-02-26",
+    "customer_name": "Meera Krishnan",
+    "customer_address": "F-7, Sector 22, Noida, Uttar Pradesh 201301",
+    "customer_phone": "9876543210",
+    "customer_email": "meera.k@example.com",
+    "subtotal": 87600.0,
+    "cgst": 7884.0,
+    "sgst": 7884.0,
+    "total": 103368.0
+  },
+  "line_items": [
+    {
+      "description": "Document digitisation services",
+      "quantity": 40.0,
+      "unit_price": 1250.0,
+      "amount": 50000.0
+    },
+    {
+      "description": "OCR model tuning and evaluation",
+      "quantity": 12.0,
+      "unit_price": 2500.0,
+      "amount": 30000.0
+    },
+    {
+      "description": "Handwritten field review",
+      "quantity": 8.0,
+      "unit_price": 950.0,
+      "amount": 7600.0
+    }
+  ]
+}
