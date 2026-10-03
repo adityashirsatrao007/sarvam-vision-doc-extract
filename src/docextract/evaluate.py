@@ -88,12 +88,18 @@ def _number(value: Any) -> str:
 
 
 def item_key(item: Mapping[str, Any] | LineItem) -> tuple[str, str, str, str]:
+    """Identity of a line item for matching purposes.
+
+    Defaults mirror :meth:`LineItem.from_dict` (``quantity`` 1.0, ``amount``
+    0.0), so an item parsed from JSON without a quantity scores identically to
+    the same item round-tripped through :class:`LineItem`.
+    """
     payload = item.to_dict() if isinstance(item, LineItem) else item
     return (
         collapse_ws(str(payload.get("description", ""))).casefold(),
-        _number(payload.get("quantity")),
+        _number(payload.get("quantity", 1.0)),
         _number(payload.get("unit_price")),
-        _number(payload.get("amount")),
+        _number(payload.get("amount", 0.0)),
     )
 
 
@@ -126,9 +132,6 @@ class DocScore:
     gold_line_items: int = 0
     pred_line_items: int = 0
     matched_line_items: int = 0
-    item_precision: float = 0.0
-    item_recall: float = 0.0
-    item_f1: float = 0.0
     doc_type_ok: bool = False
     exact_match: int = 0
     missing: list[str] = dc_field(default_factory=list)
@@ -216,7 +219,17 @@ def score_document(
     sample: str = "sample",
     min_confidence: float = 0.0,
 ) -> DocScore:
-    """Compare one predicted document against its gold JSON."""
+    """Compare one predicted document against its gold JSON.
+
+    A field counts as *matched* only when both sides canonicalise to the same
+    string (see :func:`canonical`): comparison happens after normalisation, so
+    gold may write ``₹1,03,368.00`` while the extractor produced ``103368.0``.
+    ``missing`` / ``extra`` / ``mismatched`` are three views of the same
+    comparison and deliberately overlap — a field predicted with the wrong
+    value appears in all three (it is an unmatched gold field, an unmatched
+    prediction, *and* a value mismatch), which is why exact match tests each
+    list rather than summing them.
+    """
     gold_fields: Mapping[str, Any] = gold.get("fields") or {}
     gold_items = list(gold.get("line_items") or [])
 
@@ -245,9 +258,6 @@ def score_document(
     pred_counter = Counter(item_key(item) for item in predicted.line_items)
     matched_items = sum((gold_counter & pred_counter).values())
 
-    item_precision = _ratio(matched_items, sum(pred_counter.values()), empty_is_one=not gold_counter)
-    item_recall = _ratio(matched_items, sum(gold_counter.values()), empty_is_one=not pred_counter)
-
     gold_doc_type = str(gold.get("doc_type", "") or "")
     doc_type_ok = not gold_doc_type or gold_doc_type == predicted.doc_type
 
@@ -273,9 +283,6 @@ def score_document(
         gold_line_items=sum(gold_counter.values()),
         pred_line_items=sum(pred_counter.values()),
         matched_line_items=matched_items,
-        item_precision=item_precision,
-        item_recall=item_recall,
-        item_f1=_f1(item_precision, item_recall),
         doc_type_ok=doc_type_ok,
         exact_match=exact,
         missing=missing,
@@ -317,8 +324,10 @@ def evaluate_run(
         if not gold_file.is_file():
             report.skipped.append(sample_path.name)
             continue
-        text = sample_path.read_text(encoding="utf-8")
-        document = engine.extract(source=sample_path, text=text)
+
+        # Let the provider read the file: it turns a decode/IO failure into an
+        # actionable ProviderError instead of a raw traceback here.
+        document = engine.extract(source=sample_path)
         validate_document(document)
         gold = load_gold(gold_file)
         report.scores.append(
@@ -420,15 +429,22 @@ def format_table(report: EvalReport) -> str:
 
 
 def _detail_block(score: DocScore) -> list[str]:
+    """Per-sample discrepancy list for the markdown report.
+
+    ``missing``/``extra`` are *unmatched* names, not set differences: a field
+    predicted with the wrong value shows up in both (and in ``mismatched``),
+    so the wording below says "no correct prediction" rather than "not
+    predicted".
+    """
     if not (score.missing or score.extra or score.mismatched):
         return []
     lines = [f"### {score.sample}"]
     if score.mismatched:
         lines.append(f"- mismatched values: {', '.join(score.mismatched)}")
     if score.missing:
-        lines.append(f"- missed (in gold, not predicted): {', '.join(score.missing)}")
+        lines.append(f"- gold fields without a correct prediction: {', '.join(score.missing)}")
     if score.extra:
-        lines.append(f"- spurious (predicted, not in gold): {', '.join(score.extra)}")
+        lines.append(f"- predicted fields without a correct gold match: {', '.join(score.extra)}")
     lines.append("")
     return lines
 

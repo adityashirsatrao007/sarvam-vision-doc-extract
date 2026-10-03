@@ -159,6 +159,16 @@ class TestErrorPaths(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("input file not found", result.stderr)
 
+        # A file that exists but is not UTF-8 must come back as a clean
+        # error line (the provider reads the input), never a traceback.
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "scan.txt"
+            binary.write_bytes(b"\xff\xfe\x00\x01not utf-8")
+            unreadable = run_cli("extract", "-i", str(binary), "-o", tmp)
+            self.assertEqual(unreadable.returncode, 1)
+            self.assertIn("not UTF-8", unreadable.stderr)
+            self.assertNotIn("Traceback", unreadable.stderr)
+
     def test_unknown_provider(self) -> None:
         result = run_cli("extract", "-i", "data/samples/invoice_en.txt", "-p", "magic")
         self.assertEqual(result.returncode, 1)

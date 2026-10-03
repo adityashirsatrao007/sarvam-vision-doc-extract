@@ -14,7 +14,7 @@ from typing import Sequence
 
 from . import __version__
 from .evaluate import evaluate_run, format_table
-from .providers import TEXT_SUFFIXES, ProviderError, available_providers, get_provider
+from .providers import ProviderError, available_providers, get_provider
 from .validate import validate_document
 
 __all__ = ["main", "build_parser"]
@@ -70,8 +70,9 @@ def _command_extract(args: argparse.Namespace) -> int:
         raise ProviderError(f"input file not found: {source}")
 
     provider = get_provider(args.provider)
-    text = source.read_text(encoding="utf-8") if source.suffix.lower() in TEXT_SUFFIXES else None
-    document = provider.extract(source=source, text=text)
+    # The provider decides how to read the source (text file, sibling .txt,
+    # OCR) and reports unreadable input as a ProviderError, not a traceback.
+    document = provider.extract(source=source)
     validate_document(document)
 
     out_dir = Path(args.out)

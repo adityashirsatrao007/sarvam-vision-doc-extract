@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field as dc_field
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 __all__ = [
     "FIELD_TYPES",
@@ -74,7 +74,14 @@ def _check_confidence(confidence: float) -> float:
 
 @dataclass
 class Field:
-    """A single extracted value with its type and confidence."""
+    """A single extracted value with its type and confidence.
+
+    ``confidence`` is a *heuristic score*, not a calibrated probability: it
+    starts from how the value was found (exact label match > fuzzy label >
+    layout heuristic > unparsable) and the validator then nudges it by
+    +0.03 / -0.15 / -0.40 per check. It ranks fields within a document; it
+    does not mean "93% likely to be correct".
+    """
 
     name: str
     value: Any
@@ -135,7 +142,11 @@ class LineItem:
         if self.unit_price is None:
             return True
         expected = self.quantity * self.unit_price
-        tolerance = max(0.01, abs(self.amount) * 0.005)
+        # The unit price is printed to the paise, so each unit may differ by
+        # up to half a paisa (qty * 0.005) and the product itself by another
+        # paisa. Anything beyond that is a real inconsistency — a flat "0.5%
+        # of the amount" would swallow a ₹100 error on a ₹50,000 line.
+        tolerance = 0.01 + abs(self.quantity) * 0.005
         return abs(expected - self.amount) <= tolerance
 
     def to_dict(self) -> dict[str, Any]:
@@ -204,10 +215,6 @@ class Document:
     def values(self) -> dict[str, Any]:
         """Flat ``{name: value}`` view — the shape used when scoring."""
         return {name: field.value for name, field in self.fields.items()}
-
-    def add_line_item(self, item: LineItem) -> LineItem:
-        self.line_items.append(item)
-        return item
 
     # -- serialisation -------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -315,15 +322,14 @@ def json_schema() -> dict[str, Any]:
             },
         },
         "$defs": {
-            "fieldTypes": {
-                "description": {
-                    key: _TYPE_HELP[key] for key in FIELD_TYPES
-                }
-            }
+            # JSON Schema requires "description" to be a *string*, so the
+            # per-type help is folded into one sentence rather than shipped
+            # as an object that no validator would accept.
+            "fieldType": {
+                "type": "string",
+                "enum": list(FIELD_TYPES),
+                "description": "Field type meanings: "
+                + "; ".join(f"{key} = {_TYPE_HELP[key]}" for key in FIELD_TYPES),
+            },
         },
     }
-
-
-def iter_fields(doc: Document) -> Iterable[Field]:
-    """Convenience iterator used by the validators and the scorer."""
-    return iter(doc.fields.values())

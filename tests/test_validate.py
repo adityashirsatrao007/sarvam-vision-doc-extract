@@ -70,6 +70,10 @@ class TestCleanDocument(unittest.TestCase):
         self.assertEqual(report.issues, [])
         self.assertEqual(report.errors, [])
         self.assertEqual(report.warnings, [])
+        # every field starts at 0.90 and passes its check → +0.03 each:
+        # 17 fields, so mean and min are both 0.93
+        self.assertAlmostEqual(report.mean_confidence, 0.93, places=6)
+        self.assertAlmostEqual(report.min_confidence, 0.93, places=6)
 
     def test_report_is_written_back_onto_the_document(self) -> None:
         doc = build_invoice()
@@ -161,12 +165,39 @@ class TestCrossFieldChecks(unittest.TestCase):
         report = validate_document(doc)
         self.assertIn("subtotal_mismatch", codes(report))
         self.assertFalse(report.passed)
+        message = next(i.message for i in report.issues if i.code == "subtotal_mismatch")
+        self.assertEqual(
+            message,
+            "line items sum to ₹87,600.00 but subtotal says ₹99,999.00",
+        )
+
+        # Money tolerance is exactly one paise (0.01 + an epsilon for the
+        # float representation of 0.01 itself): 87600.01 must pass …
+        one_paise = build_invoice()
+        one_paise.fields["subtotal"].value = 87600.01
+        self.assertNotIn("subtotal_mismatch", codes(validate_document(one_paise)))
+        # … and two paise must not.
+        two_paise = build_invoice()
+        two_paise.fields["subtotal"].value = 87600.02
+        self.assertIn("subtotal_mismatch", codes(validate_document(two_paise)))
 
     def test_taxes_must_add_up_to_total(self) -> None:
         doc = build_invoice()
         doc.fields["total"].value = 100000.0
         report = validate_document(doc)
         self.assertIn("total_mismatch", codes(report))
+
+        # No tax lines at all: the gap between subtotal and total may be a
+        # discount or plain round-off, neither of which is modelled, so it is
+        # reported as a warning rather than failing a legitimate document.
+        untaxed = Document(doc_type="invoice")
+        untaxed.set_field("subtotal", 100.0, "currency_amount", 0.9)
+        untaxed.set_field("total", 110.0, "currency_amount", 0.9)
+        untaxed_report = validate_document(untaxed)
+        self.assertIn("total_without_taxes", codes(untaxed_report))
+        self.assertNotIn("total_mismatch", codes(untaxed_report))
+        self.assertTrue(untaxed_report.passed)
+        self.assertEqual(untaxed_report.errors, [])
 
     def test_tax_fields_constant(self) -> None:
         self.assertIn("cgst", TAX_FIELDS)
@@ -183,6 +214,20 @@ class TestCrossFieldChecks(unittest.TestCase):
         doc.line_items[1].amount = 123.0
         report = validate_document(doc)
         self.assertIn("line_item_arithmetic", codes(report))
+
+        # The tolerance is 0.01 + ₹0.005 per unit, because the rate is only
+        # ever printed to two decimals: 3 × 33.33 = 99.99 against a ₹100.00
+        # line is rounding, not a broken total …
+        rounded = Document(doc_type="invoice")
+        rounded.set_field("subtotal", 100.0, "currency_amount", 0.9)
+        rounded.line_items.append(LineItem("rounding", 3, 33.33, 100.0))
+        self.assertNotIn("line_item_arithmetic", codes(validate_document(rounded)))
+
+        # … while 50 paise off a single unit is well past that slack.
+        sloppy = Document(doc_type="invoice")
+        sloppy.set_field("subtotal", 100.5, "currency_amount", 0.9)
+        sloppy.line_items.append(LineItem("sloppy", 1, 100.0, 100.5))
+        self.assertIn("line_item_arithmetic", codes(validate_document(sloppy)))
 
     def test_document_with_no_fields_warns_but_passes(self) -> None:
         report = validate_document(Document(doc_type="generic"))

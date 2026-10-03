@@ -164,6 +164,22 @@ class TestScoreDocument(unittest.TestCase):
         score = score_document(predicted_invoice(), gold, sample="inv")
         self.assertEqual(score.field_f1, 1.0)
 
+        # gold may also omit optional line-item keys; the scorer applies the
+        # same LineItem defaults (quantity 1.0, amount 0.0) on both sides,
+        # so the item still matches instead of splitting on a missing column
+        doc = Document(doc_type="invoice", provider="rules")
+        doc.line_items.append(LineItem("Consulting", 1, 1200.0, 1200.0))
+        sparse_gold = {
+            "doc_type": "invoice",
+            "fields": {},
+            "line_items": [{"description": "Consulting", "unit_price": 1200.0, "amount": 1200.0}],
+        }
+        sparse = score_document(doc, sparse_gold, sample="inv")
+        self.assertEqual(sparse.matched_line_items, 1)
+        self.assertEqual(sparse.pred_line_items, 1)
+        self.assertEqual(sparse.gold_line_items, 1)
+        self.assertEqual(sparse.exact_match, 1)
+
 
 class TestLoadGold(unittest.TestCase):
     def test_loads_sample_gold_files(self) -> None:

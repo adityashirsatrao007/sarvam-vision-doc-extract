@@ -62,6 +62,13 @@ class TestLineItem(unittest.TestCase):
         item = LineItem(description="work", quantity=40, unit_price=1250, amount=50000)
         self.assertTrue(item.arithmetic_ok)
 
+        # tolerance = 0.01 + ₹0.005 per unit: the rate is only printed to
+        # two decimals, so 3 × 33.33 = 99.99 against 100.00 is rounding
+        self.assertTrue(LineItem("rounding", 3, 33.33, 100.0).arithmetic_ok)
+        self.assertTrue(LineItem("paise", 1, 100.0, 100.01).arithmetic_ok)
+        # … but 50 paise on a single unit is past the slack (0.015 allowed)
+        self.assertFalse(LineItem("sloppy", 1, 100.0, 100.5).arithmetic_ok)
+
     def test_arithmetic_mismatch(self) -> None:
         item = LineItem(description="work", quantity=40, unit_price=1250, amount=49000)
         self.assertFalse(item.arithmetic_ok)
@@ -120,6 +127,14 @@ class TestJsonSchema(unittest.TestCase):
         self.assertEqual(schema["required"], ["doc_type", "fields"])
         self.assertIn("line_items", schema["properties"])
         self.assertIn("validation", schema["properties"])
+
+        # $defs holds one definition, and its description is prose a reader
+        # can act on — not a nested dict of type descriptions
+        self.assertEqual(list(schema["$defs"]), ["fieldType"])
+        field_type_def = schema["$defs"]["fieldType"]
+        self.assertEqual(field_type_def["type"], "string")
+        self.assertIsInstance(field_type_def["description"], str)
+        self.assertIn("person_name", field_type_def["description"])
 
     def test_enums_match_module_constants(self) -> None:
         schema = json_schema()

@@ -40,6 +40,8 @@ _ZWJ = "\u200d"
 _NUKTA = "\u093c"
 
 # Strings people actually write in front of a number in Indian documents.
+# Both Hindi spellings of "rupees" occur (रुपये / रुपए), plus the short forms
+# used on bills; anything left over is a non-numeric value, not a number.
 _CURRENCY_TOKENS = (
     "\u20b9",  # ₹
     "rs.",
@@ -48,7 +50,9 @@ _CURRENCY_TOKENS = (
     "रुपये",
     "रुपया",
     "रुपय",
+    "रुपए",
     "रूपये",
+    "रूपए",
     "रु.",
     "रू",
 )
@@ -90,24 +94,23 @@ _EN_MONTHS: dict[str, int] = {
     "june": 6, "jun": 6,
     "july": 7, "jul": 7,
     "august": 8, "aug": 8,
-    "september": 9, "september": 9, "sep": 9, "sept": 9,
+    "september": 9, "sep": 9, "sept": 9,
     "october": 10, "oct": 10,
     "november": 11, "nov": 11,
     "december": 12, "dec": 12,
 }
 
-# Spellings vary in Indian documents (nukta / anusvara / conjuncts), so both
-# variants are registered and every key is passed through `_month_key()` first.
+# Hindi month spellings vary in printed/OCR'd documents, but only the
+# *spelling* variants belong here: `_month_key()` already drops nukta and
+# ZWNJ/ZWJ, so फ़रवरी and फरवरी are one key and need one row. What is left to
+# enumerate is genuine orthography — anusvara vs. conjunct (सितंबर / सितम्बर),
+# missing vowel signs (फ़रवरि), and regional forms (अगष्ट).
 _HI_MONTHS_RAW: dict[str, int] = {
-    "जनवरी": 1,
-    "जनवरी": 1,
     "जनवरी": 1,
     "फ़रवरी": 2,
     "फरवरी": 2,
     "फ़रवरि": 2,
     "मार्च": 3,
-    "मार्च": 3,
-    "अप्रैल": 4,
     "अप्रैल": 4,
     "मई": 5,
     "जून": 6,
@@ -116,7 +119,6 @@ _HI_MONTHS_RAW: dict[str, int] = {
     "अगष्ट": 8,
     "सितम्बर": 9,
     "सितंबर": 9,
-    "सितम्बर": 9,
     "अक्टूबर": 10,
     "अकतूबर": 10,
     "नवम्बर": 11,
@@ -143,7 +145,7 @@ def _month_key(name: str) -> str:
 
 
 def collapse_ws(text: str) -> str:
-    """Trim and collapse every run of whitespace to a single space."""
+    """Trim the ends and collapse every whitespace run (tab, newline, NBSP) to one space."""
     return re.sub(r"\s+", " ", str(text)).strip()
 
 
@@ -151,7 +153,6 @@ def collapse_ws(text: str) -> str:
 MONTHS: dict[str, int] = {}
 for _name, _num in {**_EN_MONTHS, **_HI_MONTHS_RAW}.items():
     MONTHS[_month_key(_name)] = _num
-MONTHS[_month_key("september")] = 9
 
 _MONTH_ALT = "|".join(
     re.escape(key) for key in sorted(MONTHS, key=len, reverse=True)
@@ -172,7 +173,13 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
 
 
 def ascii_digits(text: str) -> str:
-    """Translate Devanagari digits (``०१२३``) to ASCII after NFKC."""
+    """Fold every digit form in ``text`` to ASCII: ``१२३`` and ``１２３`` -> ``123``.
+
+    NFKC first, digit map second, because NFKC covers the digit forms this map
+    cannot (full-width ``１２３`` -> ``123``, NBSP -> space, ligatures -> base
+    letters) while it leaves ``०-९`` alone. Reverse the order and a full-width
+    digit survives into the numeric regexes below, which are ASCII-only.
+    """
     return "".join(DEVANAGARI_DIGIT_MAP.get(ch, ch) for ch in nfkc(text))
 
 
@@ -193,6 +200,13 @@ def normalize_amount(raw: Any) -> float | None:
     103368.0
     >>> normalize_amount("1.5 लाख")
     150000.0
+    >>> normalize_amount("(1,234.50)")     # accounting negative (credit note)
+    -1234.5
+
+    Deliberately strict: the *whole* value must be a number once currency
+    words, ``/-`` terminators and filler words are removed. Leading prose
+    ("Total 1,234") is the label parser's job to strip, not a guess this
+    function should make — a wrong number is worse than no number.
     """
     if raw is None:
         return None
@@ -204,6 +218,15 @@ def normalize_amount(raw: Any) -> float | None:
     text = collapse_ws(ascii_digits(raw))
     if not text:
         return None
+
+    # "(1,234.50)" is accounting notation for a negative amount (credit
+    # notes, refunds); remember the brackets, parse the digits, re-apply the
+    # sign at the end. Without this the whole value reads as garbage -> None.
+    bracket_negative = len(text) > 1 and text.startswith("(") and text.endswith(")")
+    if bracket_negative:
+        text = collapse_ws(text[1:-1])
+        if not text:
+            return None
 
     # "1.5 लाख" / "2 crore" style multipliers are common in Indian documents.
     multiplier = 1
@@ -217,6 +240,8 @@ def normalize_amount(raw: Any) -> float | None:
     # Trailing filler words that commonly trail an amount line.
     text = collapse_ws(re.sub(r"(?i)\b(?:only|matr|मात्र)\b", " ", text))
     text = text.replace(" ", "")
+    # "₹1,03,368/-": the "/-" rupee terminator is punctuation, not digits.
+    text = re.sub(r"/-?$", "", text)
     if not text:
         return None
 
@@ -226,9 +251,10 @@ def normalize_amount(raw: Any) -> float | None:
         return None
 
     try:
-        return float(number) * multiplier
+        value = float(number) * multiplier
     except ValueError:
         return None
+    return -abs(value) if bracket_negative else value
 
 
 def _safe_date(year: int, month: int, day: int) -> str | None:
@@ -250,7 +276,9 @@ def normalize_date(raw: Any) -> str | None:
     if raw is None:
         return None
     if isinstance(raw, date):
-        return raw.isoformat()
+        # ``datetime`` subclasses ``date``; cut the time part off so the
+        # validator's ``^\d{4}-\d{2}-\d{2}$`` check still sees a bare date.
+        return raw.isoformat()[:10]
 
     text = collapse_ws(ascii_digits(raw))
     if not text:
@@ -294,6 +322,12 @@ def normalize_phone(raw: Any) -> str | None:
 
     >>> normalize_phone("+91 98450 12345")
     '9845012345'
+
+    Accepts the ``+91`` / ``91`` country prefix and the ``0`` trunk prefix,
+    then insists on the ``6-9`` first digit every Indian mobile allocation
+    starts with — anything else (a landline, a 12-digit string that merely
+    begins ``91``) is not a mobile and must not be reported as one. Callers
+    that only want the digits (scoring) fall back to ``\\D`` stripping.
     """
     if raw is None:
         return None
@@ -302,7 +336,7 @@ def normalize_phone(raw: Any) -> str | None:
         digits = digits[2:]
     elif len(digits) == 11 and digits.startswith("0"):
         digits = digits[1:]
-    if len(digits) == 10:
+    if len(digits) == 10 and digits[0] in "6789":
         return digits
     return None
 
@@ -318,7 +352,11 @@ def normalize_email(raw: Any) -> str | None:
 
 
 def normalize_person_name(raw: Any) -> str | None:
-    """Collapse whitespace and drop surrounding punctuation from a name."""
+    """Trim the value and drop punctuation only at its *edges*.
+
+    Inner marks belong to the name — ``Rakesh Yadav @ Rocky`` stays intact —
+    while a stray trailing period or comma (``"Meera Krishnan."``) does not.
+    """
     if raw is None:
         return None
     value = collapse_ws(nfkc(str(raw)))
@@ -329,11 +367,14 @@ def normalize_person_name(raw: Any) -> str | None:
 
 
 def format_inr(amount: float, *, paise: bool = True) -> str:
-    """Format a number with Indian lakh/crore grouping: ``103368 -> 1,03,368``."""
+    """Format a number with Indian lakh/crore grouping: ``103368 -> 1,03,368``.
+
+    Rounds once, at paise precision, then splits: rounding the fraction of an
+    already-split rupee part can produce 100 paise (``5.999`` -> ``₹5.100``).
+    """
     negative = amount < 0
     value = abs(float(amount))
-    whole = int(value)
-    fraction = round((value - whole) * 100)
+    whole, fraction = divmod(round(value * 100), 100)
     digits = str(whole)
     if len(digits) > 3:
         head, tail = digits[:-3], digits[-3:]

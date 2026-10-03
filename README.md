@@ -14,7 +14,7 @@ data/gold/*.json    ────────────────────
 
 ---
 
-## Why this exists
+## The last-mile problem
 
 This project is built on my existing **Hindi OCR document work** — an FIR digitisation
 prototype that placed **runner-up in a national hackathon out of 800+ teams** — and it is
@@ -674,6 +674,9 @@ when a dependency is missing.** That is what keeps the default path dependency-f
 * `subtotal + cgst + sgst == total`
 * `due_date >= invoice_date`
 * `quantity × unit_price == amount` for every line item
+* *(warning, not error)* a `total` that leaves `subtotal` unexplained by any
+  extracted tax line → `total_without_taxes` (discounts and round-off aren't
+  modelled, so it flags the gap without failing the document)
 
 Confidence starts from the extraction signal (exact label match `0.90`, fuzzy label
 variant `0.82`, heuristic title/organisation `0.65`, unparsable value `0.45`) and is then
@@ -732,8 +735,8 @@ Coverage by file:
 ## Honest limits
 
 1. **The rule-based extractor is brittle.** It needs `label: value` lines (or a tab /
-   double-space separator). Free-form layouts, multi-column tables without a
-   `S.No | Description | Qty | Rate | Amount` header, rotated or skewed scans, checkboxes
+   double-space separator). Free-form layouts, tables without `Description` and
+   `Amount` columns, rotated or skewed scans, checkboxes
    and handwriting are **not** handled. A new form template usually means adding a row to
    `_LABEL_ALIASES` in `extract_rules.py`.
 2. **The 100% score is on 3 self-authored documents** written alongside the rules — a

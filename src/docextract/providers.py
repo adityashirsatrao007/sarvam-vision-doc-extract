@@ -5,6 +5,15 @@
 that selecting them without the dependency raises a clear
 :class:`ProviderUnavailableError` telling you exactly what to ``pip install``
 (or which key to set) instead of an opaque ``ImportError``.
+
+Environment variables read here (all optional, none required for ``rules``):
+
+``DOCEXTRACT_ENV_FILE``
+    Alternate path for the ``.env``-style file — see :func:`load_dotenv`.
+``DOCEXTRACT_OCR_LANG``
+    Tesseract language string for ``--provider ocr`` (default ``eng+hin``).
+``DOCEXTRACT_LLM_TIMEOUT``
+    Request timeout in seconds for ``--provider llm`` (default ``60``).
 """
 
 from __future__ import annotations

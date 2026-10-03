@@ -9,6 +9,10 @@ check adjusts the field's confidence:
 
 Cross-field checks (line items summing to the subtotal, taxes adding up to the
 total, issue/due dates) report issues but never invent data.
+
+Call :func:`validate_document` once per document: confidence adjustments
+accumulate, so a second pass would move the numbers again (the CLI and the
+scorer each validate exactly once).
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from dataclasses import dataclass, field as dc_field
 from datetime import date, timedelta
 from typing import Any, Callable
 
+from .normalize import format_inr
 from .schema import Document
 
 __all__ = [
@@ -30,7 +35,12 @@ __all__ = [
 #: Field names treated as tax lines when checking ``total``.
 TAX_FIELDS: frozenset[str] = frozenset({"cgst", "sgst", "igst", "gst", "tax", "vat", "cess"})
 
-_TOLERANCE = 0.01
+# Money tolerance: one paise. GST amounts are computed to the paise, so a
+# one-paise difference is rounding, not a mistake. The `+ 1e-9` is load-bearing:
+# float sums of 2-decimal amounts land on either side of the boundary
+# (10.0 - 9.99 = 0.00999..., 118.0 - 117.99 = 0.010000000000005), so a bare
+# "> 0.01" would flag one 1-paise document and pass an identical one.
+_TOLERANCE = 0.01 + 1e-9
 _PENALTY_PASS = 0.03
 _PENALTY_WARNING = 0.15
 _PENALTY_ERROR = 0.40
@@ -240,7 +250,10 @@ def _check_line_item_sum(doc: Document, report: ValidationReport) -> None:
                 field="subtotal",
                 code="subtotal_mismatch",
                 severity="error",
-                message=f"line items sum to {expected:.2f} but subtotal says {actual:.2f}",
+                message=(
+                    f"line items sum to {format_inr(expected)} "
+                    f"but subtotal says {format_inr(actual)}"
+                ),
             )
         )
         report.confidences["subtotal"] = max(
@@ -262,24 +275,37 @@ def _check_total(doc: Document, report: ValidationReport) -> None:
         if field is not None and isinstance(field.value, (int, float)):
             taxes += float(field.value)
             have_tax = True
-    if not have_tax:
-        return
     expected = float(subtotal.value) + taxes
-    if abs(expected - float(total.value)) > _TOLERANCE:
-        report.issues.append(
-            Issue(
-                field="total",
-                code="total_mismatch",
-                severity="error",
-                message=(
-                    f"subtotal {subtotal.value:.2f} + taxes {taxes:.2f} = {expected:.2f} "
-                    f"but total says {total.value:.2f}"
-                ),
-            )
+    difference = abs(expected - float(total.value))
+    if difference <= _TOLERANCE:
+        return
+
+    if have_tax:
+        severity, code = "error", "total_mismatch"
+        penalty, floor = _PENALTY_ERROR, 0.05
+        message = (
+            f"subtotal {format_inr(subtotal.value)} + taxes {format_inr(taxes)} = "
+            f"{format_inr(expected)} but total says {format_inr(float(total.value))}"
         )
-        report.confidences["total"] = max(
-            0.05, report.confidences.get("total", 0.5) - _PENALTY_ERROR
+    else:
+        # No tax line was extracted — and discounts / round-off are not modelled
+        # either — so the gap cannot be explained either way. Report it as a
+        # warning rather than failing the document: a legitimate discount looks
+        # exactly like a wrong total from here.
+        severity, code = "warning", "total_without_taxes"
+        penalty, floor = _PENALTY_WARNING, 0.15
+        message = (
+            f"subtotal {format_inr(subtotal.value)} and total "
+            f"{format_inr(float(total.value))} differ by {format_inr(difference)} "
+            "but no tax line was extracted (discount/round-off is not modelled)"
         )
+
+    report.issues.append(
+        Issue(field="total", code=code, severity=severity, message=message)
+    )
+    report.confidences["total"] = max(
+        floor, report.confidences.get("total", 0.5) - penalty
+    )
 
 
 def _check_due_date(doc: Document, report: ValidationReport) -> None:
@@ -306,23 +332,23 @@ def _check_due_date(doc: Document, report: ValidationReport) -> None:
 
 
 def _check_line_item_arithmetic(doc: Document, report: ValidationReport) -> None:
+    # `LineItem.arithmetic_ok` owns the tolerance, so the property a caller
+    # reads and the check that fails a document can never drift apart.
     for index, item in enumerate(doc.line_items, start=1):
-        if item.unit_price is None:
+        if item.unit_price is None or item.arithmetic_ok:
             continue
         expected = item.quantity * item.unit_price
-        tolerance = max(_TOLERANCE, abs(item.amount) * 0.005)
-        if abs(expected - item.amount) > tolerance:
-            report.issues.append(
-                Issue(
-                    field=f"line_items[{index}]",
-                    code="line_item_arithmetic",
-                    severity="error",
-                    message=(
-                        f"{item.quantity:g} x {item.unit_price:.2f} = {expected:.2f} "
-                        f"but amount says {item.amount:.2f}"
-                    ),
-                )
+        report.issues.append(
+            Issue(
+                field=f"line_items[{index}]",
+                code="line_item_arithmetic",
+                severity="error",
+                message=(
+                    f"{item.quantity:g} x {format_inr(item.unit_price)} = "
+                    f"{format_inr(expected)} but amount says {format_inr(item.amount)}"
+                ),
             )
+        )
 
 
 def validate_document(doc: Document) -> ValidationReport:
@@ -330,6 +356,10 @@ def validate_document(doc: Document) -> ValidationReport:
 
     Field confidences inside ``doc`` are updated in place so the JSON written
     by the CLI reflects what the validator believes.
+
+    All issues are collected rather than raised on the first one: a document
+    usually has several problems, and the CLI/JSON report is only useful if it
+    lists them together — an exception would stop at ``fields[0]``.
     """
     report = ValidationReport()
 

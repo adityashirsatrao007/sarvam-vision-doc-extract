@@ -45,6 +45,10 @@ class TestNormalizeAmount(unittest.TestCase):
 
     def test_hindi_currency_word(self) -> None:
         self.assertEqual(normalize_amount("रु. 2,500.00"), 2500.00)
+        # both spellings appear in the wild: the vowel-sign form and the
+        # Ya-Deva (रू) form used by older fonts / OCR output
+        self.assertEqual(normalize_amount("रुपए 500"), 500.0)
+        self.assertEqual(normalize_amount("रूपए 500"), 500.0)
 
     def test_multiplier_words(self) -> None:
         self.assertEqual(normalize_amount("1.5 लाख"), 150000.0)
@@ -62,6 +66,11 @@ class TestNormalizeAmount(unittest.TestCase):
     def test_plain_numbers_pass_through(self) -> None:
         self.assertEqual(normalize_amount(103368.0), 103368.0)
         self.assertEqual(normalize_amount(45000), 45000.0)
+        # parentheses mean a negative figure in accounting print-outs …
+        self.assertEqual(normalize_amount("(1,234.50)"), -1234.5)
+        self.assertEqual(normalize_amount("(1,03,368.00)"), -103368.0)
+        # … and "/-" is the Indian cheque/invoice way of ending an amount
+        self.assertEqual(normalize_amount("₹1,03,368/-"), 103368.0)
 
 
 class TestNormalizeDate(unittest.TestCase):
@@ -72,6 +81,8 @@ class TestNormalizeDate(unittest.TestCase):
 
     def test_iso_input(self) -> None:
         self.assertEqual(normalize_date("2026-03-03"), "2026-03-03")
+        # a datetime is truncated to its date part, never rejected
+        self.assertEqual(normalize_date("2026-02-12 10:30:00"), "2026-02-12")
 
     def test_hindi_month_names(self) -> None:
         self.assertEqual(normalize_date("14 फ़रवरी 2026"), "2026-02-14")
@@ -97,8 +108,15 @@ class TestNormaliseMisc(unittest.TestCase):
         self.assertEqual(normalize_phone("09876543210"), "9876543210")
         self.assertEqual(normalize_phone("919876543210"), "9876543210")
         self.assertEqual(normalize_phone("९८२२०१४५६७"), "9822014567")
+        self.assertEqual(normalize_phone("6123456789"), "6123456789")  # starts at 6
         self.assertIsNone(normalize_phone("12345"))
         self.assertIsNone(normalize_phone("not a phone"))
+        # Indian mobiles start 6-9; anything else is a different number type
+        # (a landline, an account id) and must not be canonicalised as one.
+        self.assertIsNone(normalize_phone("5123456789"))
+        self.assertIsNone(normalize_phone("2345678901"))
+        # 12 digits with a 91 prefix is not a 10-digit Indian number either
+        self.assertIsNone(normalize_phone("912345678901"))
 
     def test_email_is_lowercased(self) -> None:
         self.assertEqual(normalize_email("  Meera.K@Example.COM "), "meera.k@example.com")
@@ -119,6 +137,12 @@ class TestNormaliseMisc(unittest.TestCase):
         self.assertEqual(format_inr(103368), "₹1,03,368.00")
         self.assertEqual(format_inr(87600), "₹87,600.00")
         self.assertEqual(format_inr(1234.5), "₹1,234.50")
+        # rounded exactly once: 5.999 -> 6.00, not the 5.100 that rounding
+        # the rupees and the paise separately produces
+        self.assertEqual(format_inr(5.999), "₹6.00")
+        self.assertEqual(format_inr(999.995), "₹1,000.00")
+        self.assertEqual(format_inr(-1234.5), "-₹1,234.50")
+        self.assertEqual(format_inr(0), "₹0.00")
 
 
 class TestLabelVocabulary(unittest.TestCase):
@@ -132,6 +156,7 @@ class TestLabelVocabulary(unittest.TestCase):
 
     def test_known_titles(self) -> None:
         self.assertIn("invoice", KNOWN_TITLES)
+        self.assertIn("tax invoice", KNOWN_TITLES)  # GST-era header on Indian invoices
         self.assertIn("fir", KNOWN_TITLES)
         self.assertIn("आवेदन पत्र", KNOWN_TITLES)
 
@@ -184,6 +209,26 @@ class TestInvoiceExtraction(unittest.TestCase):
         for field in self.doc.fields.values():
             self.assertGreater(field.confidence, 0.0)
             self.assertLessEqual(field.confidence, 1.0)
+
+        # hand-computed: 13 exact-label fields at 0.90, the two "CGST @ 18%"
+        # style qualified labels at 0.82, and the title / org_name heuristics
+        # at 0.65 → 14.64 over 17 fields (mean 0.8612, min 0.65)
+        self.assertEqual(len(self.doc.fields), 17)
+        self.assertEqual(self.doc.fields["invoice_no"].confidence, 0.90)
+        self.assertEqual(self.doc.fields["cgst"].confidence, 0.82)
+        self.assertEqual(self.doc.fields["org_name"].confidence, 0.65)
+        self.assertEqual(self.doc.fields["title"].confidence, 0.65)
+        self.assertAlmostEqual(
+            sum(f.confidence for f in self.doc.fields.values()),
+            13 * 0.90 + 2 * 0.82 + 2 * 0.65,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            sum(f.confidence for f in self.doc.fields.values()) / len(self.doc.fields),
+            14.64 / 17,
+            places=9,
+        )
+        self.assertEqual(min(f.confidence for f in self.doc.fields.values()), 0.65)
 
 
 class TestHindiFormExtraction(unittest.TestCase):
@@ -265,6 +310,13 @@ class TestParserBehaviour(unittest.TestCase):
         doc = extract_document("ACME PRIVATE LIMITED\nName: Beta\nNarrative text here\n")
         self.assertEqual(doc.value("org_name"), "ACME PRIVATE LIMITED")
 
+        # "TAX INVOICE" is the document's own title, not the issuer: without
+        # the title rule it would be swallowed as org_name.
+        titled = extract_document("TAX INVOICE\nInvoice No: INV-7\nTotal: ₹100.00\n")
+        self.assertEqual(titled.value("title"), "TAX INVOICE")
+        self.assertIsNone(titled.get("org_name"))
+        self.assertEqual(titled.doc_type, "invoice")
+
     def test_colonless_narrative_is_not_a_label(self) -> None:
         doc = extract_document("Name: Gamma\nthis line has no separator at all\n")
         self.assertEqual(list(doc.fields), ["name"])
@@ -291,6 +343,19 @@ class TestParserBehaviour(unittest.TestCase):
         doc = extract_document("Name: Theta\nAddress: 12 MG Road, Pune 411001\n")
         self.assertEqual(doc.doc_type, "generic")
 
+        # an address that wraps must be merged, not truncated at line one —
+        # dropping the second line would silently lose the PIN code
+        wrapped = extract_document(
+            "Name: Theta\nAddress:\n  12 MG Road, near the old post office,\n  Pune 411001\n"
+        )
+        self.assertEqual(wrapped.value("address"), "12 MG Road, near the old post office, Pune 411001")
+        self.assertEqual(wrapped.doc_type, "generic")
+
+        # a bare address label with no block after it must not create an
+        # empty field for the validator to complain about
+        empty = extract_document("Name: Theta\nAddress:\n")
+        self.assertIsNone(empty.get("address"))
+
     def test_detect_doc_type_helper(self) -> None:
         doc = extract_document("Invoice No: A-1\n")
         self.assertEqual(detect_doc_type(doc), "invoice")
@@ -309,6 +374,23 @@ class TestLineItemParser(unittest.TestCase):
         self.assertEqual(items[0].amount, 100.0)
         self.assertEqual(items[1].quantity, 3.0)
         self.assertEqual(items[1].unit_price, 25.50)
+
+        # a two-column table (Description | Amount) is still a table: the
+        # quantity falls back to 1.0 and there is no rate cell to invent
+        two_column = parse_line_items(
+            [
+                "Description | Amount",
+                "Consulting | 12,000.00",
+                "Travel | 3,500.00",
+            ]
+        )
+        self.assertEqual(len(two_column), 2)
+        self.assertEqual(two_column[0].quantity, 1.0)
+        self.assertIsNone(two_column[0].unit_price)
+        self.assertEqual(two_column[0].amount, 12000.0)
+        self.assertEqual(two_column[1].amount, 3500.0)
+        # no rate => arithmetic cannot be checked, and must not be flagged
+        self.assertTrue(two_column[0].arithmetic_ok)
 
     def test_no_table_returns_empty(self) -> None:
         self.assertEqual(parse_line_items(["Name: Alpha", "Address: 12 MG Road, Pune"]), [])
