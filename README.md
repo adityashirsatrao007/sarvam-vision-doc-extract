@@ -495,6 +495,10 @@ invoice_en,rules,invoice,invoice,1,17,17,17,1.0000,1.0000,1.0000,3,3,3,1,,,
 MACRO-AVERAGE,rules,,,,,,,1.0000,1.0000,1.0000,,,,3/3,,,
 ```
 
+Gold fields against extracted fields, plotted from that file:
+
+![Gold and extracted field counts side by side: 17 for the invoice, 12 for the FIR and 11 for the form, matching exactly in all three](figures/fields-recovered.png)
+
 ### How the numbers are computed
 
 * **field precision** = correct predictions / all predicted fields
